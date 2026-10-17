@@ -99,14 +99,14 @@ export async function transcodeForTikTok(
 
   // Resolution scaling with aspect-ratio preservation and black padding
   if (targetResolution === '1080x1920') {
-    vfFilters.push('scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1920:(1080-iw)/2:(1920-ih)/2:color=black,setsar=1');
+    vfFilters.push('scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos+accurate_rnd+full_chroma_int,pad=1080:1920:(1080-iw)/2:(1920-ih)/2:color=black,setsar=1');
   } else if (targetResolution === '1080x1350') {
-    vfFilters.push('scale=1080:1350:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1350:(1080-iw)/2:(1350-ih)/2:color=black,setsar=1');
+    vfFilters.push('scale=1080:1350:force_original_aspect_ratio=decrease:flags=lanczos+accurate_rnd+full_chroma_int,pad=1080:1350:(1080-iw)/2:(1350-ih)/2:color=black,setsar=1');
   } else if (targetResolution === '1080x1080') {
-    vfFilters.push('scale=1080:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1080:(1080-iw)/2:(1080-ih)/2:color=black,setsar=1');
+    vfFilters.push('scale=1080:1080:force_original_aspect_ratio=decrease:flags=lanczos+accurate_rnd+full_chroma_int,pad=1080:1080:(1080-iw)/2:(1080-ih)/2:color=black,setsar=1');
   } else {
     // Ensure dimensions are divisible by 2 for yuv420p
-    vfFilters.push('scale=trunc(iw/2)*2:trunc(ih/2)*2');
+    vfFilters.push('scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos+accurate_rnd');
   }
 
   // Framerate normalization (Strict Constant Frame Rate)
@@ -119,20 +119,28 @@ export async function transcodeForTikTok(
     args.push('-vf', vfFilters.join(','));
   }
 
-  // Codec, profile and quality settings matching TikTok Studio requirements
+  // Master-Grade Lossless-Visual Encoding settings:
+  // - CRF 15: Visually transparent master quality, completely preserves fine grain, CC, and glow
+  // - BT.709 Color Space tags: Prevents color shifting / washed-out CC on TikTok and browsers
+  // - Maxrate 25M / Bufsize 50M: Generous ceiling to prevent particle/motion compression
+  // - 320k AAC 48kHz: Crystal-clear audio
   args.push(
     '-c:v', 'libx264',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-preset', 'fast',
-    '-crf', String(crf),
-    '-maxrate', videoBitrate,
-    '-bufsize', '32M',
+    '-preset', 'medium',
+    '-crf', '15',
+    '-maxrate', '25M',
+    '-bufsize', '50M',
     '-pix_fmt', 'yuv420p',
-    '-g', targetFps !== 'source' ? String(Number(targetFps) * 2) : '60', // 2-second GOP size
+    '-colorspace', 'bt709',
+    '-color_primaries', 'bt709',
+    '-color_trc', 'bt709',
+    '-color_range', 'tv',
+    '-g', targetFps !== 'source' ? String(Number(targetFps) * 2) : '60',
     '-keyint_min', targetFps !== 'source' ? String(Number(targetFps)) : '30',
     '-c:a', 'aac',
-    '-b:a', audioBitrate,
+    '-b:a', '320k',
     '-ar', '48000',
     '-ac', '2',
     '-movflags', '+faststart',

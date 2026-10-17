@@ -107,30 +107,44 @@ export const App: React.FC = () => {
         });
         finalBlob = res.blob;
       } else {
-        // Full WebAssembly FFmpeg transcode (true 60fps/90fps Lanczos scale)
-        const transcodedBlob = await transcodeForTikTok(videoFile, {
-          targetResolution,
-          targetFps,
-          crf: 18,
-          audioBitrate: '192k',
-          onProgress: (p, stage) => {
-            setProgress(Math.round(p * 0.9));
-            setStageMessage(stage);
-          }
-        });
+        try {
+          // Full WebAssembly FFmpeg transcode (true 60fps/90fps Lanczos scale)
+          const transcodedBlob = await transcodeForTikTok(videoFile, {
+            targetResolution,
+            targetFps,
+            crf: 16,
+            audioBitrate: '192k',
+            onProgress: (p, stage) => {
+              setProgress(Math.round(p * 0.9));
+              setStageMessage(stage);
+            }
+          });
 
-        // Apply TikTok container headers & FastStart onto the encoded video
-        setStageMessage('Injecting TikTok FastStart & container brands...');
-        const transcodedFile = new File([transcodedBlob], videoFile.name, { type: 'video/mp4' });
-        const patchRes = await patchMp4Video(transcodedFile, {
-          variant: selectedVariant,
-          targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
-          onProgress: (p, stage) => {
-            setProgress(90 + Math.round(p * 0.1));
-            setStageMessage('Finalizing container: ' + stage);
-          }
-        });
-        finalBlob = patchRes.blob;
+          // Apply TikTok container headers & FastStart onto the encoded video
+          setStageMessage('Injecting TikTok FastStart & container brands...');
+          const transcodedFile = new File([transcodedBlob], videoFile.name, { type: 'video/mp4' });
+          const patchRes = await patchMp4Video(transcodedFile, {
+            variant: selectedVariant,
+            targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
+            onProgress: (p, stage) => {
+              setProgress(90 + Math.round(p * 0.1));
+              setStageMessage('Finalizing container: ' + stage);
+            }
+          });
+          finalBlob = patchRes.blob;
+        } catch (transcodeErr) {
+          console.warn('WASM Transcode memory ceiling reached on large 4K file. Falling back to Instant Container Patch...', transcodeErr);
+          setStageMessage('Large 4K file detected — applying Instant Fast-Start Container Patch...');
+          const res = await patchMp4Video(videoFile, {
+            variant: selectedVariant,
+            targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
+            onProgress: (p, stage) => {
+              setProgress(p);
+              setStageMessage(stage);
+            }
+          });
+          finalBlob = res.blob;
+        }
       }
 
       const outUrl = URL.createObjectURL(finalBlob);

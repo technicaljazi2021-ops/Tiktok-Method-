@@ -119,19 +119,21 @@ export async function transcodeForTikTok(
     args.push('-vf', vfFilters.join(','));
   }
 
-  // Master-Grade Lossless-Visual Encoding settings:
-  // - CRF 15: Visually transparent master quality, completely preserves fine grain, CC, and glow
+  // Memory-Safe High-Fidelity Encoding:
+  // - Preset 'veryfast' + '-threads 2': Prevents browser 32-bit WebAssembly OOM heap crashes on 4K/2160p videos
+  // - CRF 16: Visually transparent master quality, completely preserves fine grain, CC, and glow
   // - BT.709 Color Space tags: Prevents color shifting / washed-out CC on TikTok and browsers
-  // - Maxrate 25M / Bufsize 50M: Generous ceiling to prevent particle/motion compression
-  // - 320k AAC 48kHz: Crystal-clear audio
+  // - Maxrate 20M / Bufsize 40M: TikTok sweet-spot ceiling
+  // - 192k AAC 48kHz: Crystal-clear audio
   args.push(
+    '-threads', '2',
     '-c:v', 'libx264',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-preset', 'medium',
-    '-crf', '15',
-    '-maxrate', '25M',
-    '-bufsize', '50M',
+    '-preset', 'veryfast',
+    '-crf', '16',
+    '-maxrate', '20M',
+    '-bufsize', '40M',
     '-pix_fmt', 'yuv420p',
     '-colorspace', 'bt709',
     '-color_primaries', 'bt709',
@@ -140,7 +142,7 @@ export async function transcodeForTikTok(
     '-g', targetFps !== 'source' ? String(Number(targetFps) * 2) : '60',
     '-keyint_min', targetFps !== 'source' ? String(Number(targetFps)) : '30',
     '-c:a', 'aac',
-    '-b:a', '320k',
+    '-b:a', '192k',
     '-ar', '48000',
     '-ac', '2',
     '-movflags', '+faststart',

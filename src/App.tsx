@@ -22,7 +22,6 @@ export const App: React.FC = () => {
   const [selectedVariant, setSelectedVariant] = useState<PatchVariant>('variant-2'); // Default to PC Studio
   const [targetFps, setTargetFps] = useState<60 | 90 | 120 | 'source'>(60);
   const [targetResolution, setTargetResolution] = useState<'1080x1920' | '1080x1350' | '1080x1080' | 'source'>('1080x1920');
-  const [engineMode, setEngineMode] = useState<'patch' | 'transcode'>('patch');
 
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -82,7 +81,6 @@ export const App: React.FC = () => {
     setTargetFps(preset.fps);
     setTargetResolution(preset.resolution);
     setSelectedVariant(preset.defaultVariant);
-    setEngineMode(preset.defaultEngine);
   };
 
   const handleStartProcessing = async () => {
@@ -95,8 +93,35 @@ export const App: React.FC = () => {
     try {
       let finalBlob: Blob;
 
-      if (engineMode === 'patch') {
-        // Fast client-side MP4 container patch (with bug-free byte precision & FastStart)
+      try {
+        // Full WebAssembly FFmpeg transcode (Lanczos 1080p, 5x5 Unsharp, Constrained CRF 18.5)
+        const transcodedBlob = await transcodeForTikTok(videoFile, {
+          targetResolution,
+          targetFps,
+          crf: 18.5,
+          videoBitrate: '8M',
+          audioBitrate: '192k',
+          onProgress: (p, stage) => {
+            setProgress(Math.round(p * 0.9));
+            setStageMessage(stage);
+          }
+        });
+
+        // Apply Zilem Method / CompressBase 64-bit infinite duration header & FastStart
+        setStageMessage('Injecting Zilem Method 64-bit infinite duration bypass...');
+        const transcodedFile = new File([transcodedBlob], videoFile.name, { type: 'video/mp4' });
+        const patchRes = await patchMp4Video(transcodedFile, {
+          variant: selectedVariant,
+          targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
+          onProgress: (p, stage) => {
+            setProgress(90 + Math.round(p * 0.1));
+            setStageMessage('Finalizing container: ' + stage);
+          }
+        });
+        finalBlob = patchRes.blob;
+      } catch (transcodeErr) {
+        console.warn('WASM Transcode memory ceiling reached on large 4K file. Falling back to Zilem Method Container Patch...', transcodeErr);
+        setStageMessage('Large 4K file detected — applying Zilem Method Container Patch...');
         const res = await patchMp4Video(videoFile, {
           variant: selectedVariant,
           targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
@@ -106,46 +131,6 @@ export const App: React.FC = () => {
           }
         });
         finalBlob = res.blob;
-      } else {
-        try {
-          // Full WebAssembly FFmpeg transcode (true 60fps/90fps Lanczos scale)
-          const transcodedBlob = await transcodeForTikTok(videoFile, {
-            targetResolution,
-            targetFps,
-            crf: 18.5,
-            videoBitrate: '8M',
-            audioBitrate: '192k',
-            onProgress: (p, stage) => {
-              setProgress(Math.round(p * 0.9));
-              setStageMessage(stage);
-            }
-          });
-
-          // Apply TikTok container headers & FastStart onto the encoded video
-          setStageMessage('Injecting TikTok FastStart & container brands...');
-          const transcodedFile = new File([transcodedBlob], videoFile.name, { type: 'video/mp4' });
-          const patchRes = await patchMp4Video(transcodedFile, {
-            variant: selectedVariant,
-            targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
-            onProgress: (p, stage) => {
-              setProgress(90 + Math.round(p * 0.1));
-              setStageMessage('Finalizing container: ' + stage);
-            }
-          });
-          finalBlob = patchRes.blob;
-        } catch (transcodeErr) {
-          console.warn('WASM Transcode memory ceiling reached on large 4K file. Falling back to Instant Container Patch...', transcodeErr);
-          setStageMessage('Large 4K file detected — applying Instant Fast-Start Container Patch...');
-          const res = await patchMp4Video(videoFile, {
-            variant: selectedVariant,
-            targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
-            onProgress: (p, stage) => {
-              setProgress(p);
-              setStageMessage(stage);
-            }
-          });
-          finalBlob = res.blob;
-        }
       }
 
       const outUrl = URL.createObjectURL(finalBlob);
@@ -290,8 +275,6 @@ export const App: React.FC = () => {
               progress={progress}
               stageMessage={stageMessage}
               isCompleted={isCompleted}
-              engineMode={engineMode}
-              onChangeEngineMode={setEngineMode}
               targetFps={targetFps}
               targetResolution={targetResolution}
               selectedVariant={selectedVariant}

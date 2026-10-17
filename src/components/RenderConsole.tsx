@@ -9,8 +9,6 @@ interface RenderConsoleProps {
   progress: number;
   stageMessage: string;
   isCompleted: boolean;
-  engineMode: 'patch' | 'transcode';
-  onChangeEngineMode: (mode: 'patch' | 'transcode') => void;
   targetFps: 60 | 90 | 120 | 'source';
   targetResolution: string;
   selectedVariant: PatchVariant;
@@ -27,8 +25,6 @@ export const RenderConsole: React.FC<RenderConsoleProps> = ({
   progress,
   stageMessage,
   isCompleted,
-  engineMode,
-  onChangeEngineMode,
   targetFps,
   targetResolution,
   selectedVariant,
@@ -44,45 +40,30 @@ export const RenderConsole: React.FC<RenderConsoleProps> = ({
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#00f0ff]" />
-          <span>Step 3: Select Engine & Generate</span>
+          <span>Step 3: Generate Optimized Master</span>
         </span>
-        <span className="text-[11px] text-zinc-400">Instant vs Deep Re-encode</span>
+        <span className="text-[11px] text-cyan-400 font-mono font-bold">100% Client-Side WASM</span>
       </div>
 
-      {/* Engine Mode Toggle */}
-      <div className="grid grid-cols-2 gap-2 bg-black/50 p-1.5 rounded-2xl border border-white/[0.08]">
-        <button
-          onClick={() => onChangeEngineMode('patch')}
-          disabled={isProcessing}
-          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            engineMode === 'patch'
-              ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-black shadow-[0_0_18px_rgba(0,240,255,0.35)]'
-              : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          <Zap className="w-3.5 h-3.5" />
-          <span>Instant Patch (0.1s)</span>
-        </button>
-
-        <button
-          onClick={() => onChangeEngineMode('transcode')}
-          disabled={isProcessing}
-          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            engineMode === 'transcode'
-              ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-black shadow-[0_0_18px_rgba(0,240,255,0.35)]'
-              : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          <Cpu className="w-3.5 h-3.5" />
-          <span>Full Transcode (WASM)</span>
-        </button>
+      {/* Active Pipeline Card */}
+      <div className="flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-cyan-950/40 via-blue-950/30 to-black border border-cyan-500/30 shadow-[0_0_20px_rgba(0,240,255,0.08)]">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-cyan-400/10 border border-cyan-400/30 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.2)]">
+            <Cpu className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-white flex items-center gap-2">
+              <span>TikTok HD Transcode + Zilem Method Patch</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-400/20 text-cyan-300 font-mono font-bold border border-cyan-400/30">
+                ACTIVE
+              </span>
+            </div>
+            <p className="text-[10px] text-zinc-400 mt-0.5">
+              Lanczos 1080p + 5×5 Unsharp Detail + 64-bit Infinite Duration Spoof (512M Hours)
+            </p>
+          </div>
+        </div>
       </div>
-
-      <p className="text-[11px] text-zinc-400 px-1 leading-relaxed">
-        {engineMode === 'patch'
-          ? '⚡ Instant Patch: Rewrites MP4 container atoms, moves moov to header (Fast-Start), and updates chunk offsets. Takes 0.1s with zero quality degradation.'
-          : '⚙️ Full Transcode: Decodes video and re-encodes with Lanczos 1080x1920 scaling, strict CFR 60/90 FPS, H.264 High Profile, and AAC 48kHz audio.'}
-      </p>
 
       {/* Summary Box */}
       <div className="flex items-center justify-between px-3.5 py-2.5 bg-black/60 rounded-xl border border-cyan-500/15 text-xs">
@@ -144,7 +125,7 @@ export const RenderConsole: React.FC<RenderConsoleProps> = ({
               )}
             </span>
             <span className="text-xs font-mono font-black opacity-85">
-              {engineMode === 'patch' ? 'INSTANT (0.1S)' : 'DEEP ENCODE'}
+              HD MASTER
             </span>
           </button>
         ) : (

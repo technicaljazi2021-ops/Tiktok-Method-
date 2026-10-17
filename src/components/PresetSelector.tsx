@@ -61,18 +61,6 @@ export const UNIFIED_PRESETS: UnifiedPreset[] = [
     defaultEngine: 'transcode',
     description: 'Injects Apple QuickTime metadata (qt brand) so TikTok treats footage as native iPhone camera recording.',
     recommendedFor: 'Posting directly from iPhone or iPad TikTok app'
-  },
-  {
-    id: 'instant-faststart',
-    name: 'Instant Fast-Start (Lossless 0.1s)',
-    tag: 'ZERO WAIT',
-    badge: 'FASTEST',
-    resolution: 'source',
-    fps: 'source',
-    defaultVariant: 'variant-1',
-    defaultEngine: 'patch',
-    description: 'Pure binary container rewrite: relocates moov before mdat, updates chunk offsets, ready in 0.1s.',
-    recommendedFor: 'Videos already rendered in 1080x1920 in Premiere/CapCut'
   }
 ];
 

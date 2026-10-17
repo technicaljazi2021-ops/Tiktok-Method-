@@ -109,6 +109,9 @@ export async function transcodeForTikTok(
     vfFilters.push('scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos+accurate_rnd');
   }
 
+  // CompressBase detail enhancement: subtle unsharp mask to keep CC crisp and protect fine edges from TikTok blur
+  vfFilters.push('unsharp=3:3:0.6:3:3:0.2');
+
   // Framerate normalization (Strict Constant Frame Rate)
   if (targetFps !== 'source') {
     args.push('-r', String(targetFps));
@@ -121,9 +124,9 @@ export async function transcodeForTikTok(
 
   // Memory-Safe High-Fidelity Encoding:
   // - Preset 'veryfast' + '-threads 2': Prevents browser 32-bit WebAssembly OOM heap crashes on 4K/2160p videos
-  // - CRF 16: Visually transparent master quality, completely preserves fine grain, CC, and glow
+  // - CRF 19 + maxrate 12M / bufsize 24M: The exact ~25-32MB sweet spot that stays under TikTok's server-side
+  //   force-reencode threshold (files above 15Mbps/50MB get forcefully crushed to 720p by TikTok)
   // - BT.709 Color Space tags: Prevents color shifting / washed-out CC on TikTok and browsers
-  // - Maxrate 20M / Bufsize 40M: TikTok sweet-spot ceiling
   // - 192k AAC 48kHz: Crystal-clear audio
   args.push(
     '-threads', '2',
@@ -132,9 +135,9 @@ export async function transcodeForTikTok(
     '-level:v', '4.2',
     '-preset', 'veryfast',
     '-x264-params', 'rc-lookahead=10:sync-lookahead=5',
-    '-crf', '16',
-    '-maxrate', '20M',
-    '-bufsize', '40M',
+    '-crf', '19',
+    '-maxrate', '12M',
+    '-bufsize', '24M',
     '-pix_fmt', 'yuv420p',
     '-colorspace', 'bt709',
     '-color_primaries', 'bt709',

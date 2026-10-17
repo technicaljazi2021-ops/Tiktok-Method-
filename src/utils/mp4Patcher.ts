@@ -215,6 +215,85 @@ function patchFtypInPlace(ftypBytes: Uint8Array, variant: PatchVariant): void {
 }
 
 /**
+ * Injects Zilem Method / CompressBase 64-bit infinite duration header into moov.
+ * Sets mvhd version=1 with duration=0xFFFFFFFFFFFFFFFFn (-1) so TikTok's server
+ * cannot calculate target transcode budgets and passes through the full 1080p 60fps stream untouched.
+ * Also injects the CompressBase / Zilem Method metadata tags into udta.
+ */
+function patchMoovWithZilemHeader(moovBytes: Uint8Array): { patchedMoovBytes: Uint8Array; sizeDiff: number } {
+  const view = new DataView(moovBytes.buffer, moovBytes.byteOffset, moovBytes.byteLength);
+  const children = findChildBoxes(view, 8, moovBytes.byteLength);
+  const mvhdBox = children.find(b => b.type === 'mvhd');
+  if (!mvhdBox) return { patchedMoovBytes: moovBytes, sizeDiff: 0 };
+
+  const version = view.getUint8(mvhdBox.dataOffset);
+  let timescale = 57600;
+  let nextTrackId = 3;
+
+  if (version === 0) {
+    timescale = view.getUint32(mvhdBox.dataOffset + 12, false);
+    nextTrackId = view.getUint32(mvhdBox.dataOffset + 96, false);
+  } else {
+    timescale = view.getUint32(mvhdBox.dataOffset + 20, false);
+    nextTrackId = view.getUint32(mvhdBox.dataOffset + 108, false);
+  }
+
+  // 120-byte Version 1 mvhd with 64-bit infinite duration (0xFFFFFFFFFFFFFFFFn)
+  const newMvhd = new Uint8Array(120);
+  const mvhdV = new DataView(newMvhd.buffer);
+  mvhdV.setUint32(0, 120, false);
+  writeFourCC(mvhdV, 4, 'mvhd');
+  mvhdV.setUint8(8, 1); // version 1 (64-bit)
+  mvhdV.setUint8(9, 0); // flags
+  mvhdV.setUint8(10, 0);
+  mvhdV.setUint8(11, 0);
+
+  const now = BigInt(Math.floor(Date.now() / 1000) + 2082844800);
+  mvhdV.setBigUint64(12, now, false); // creation_time
+  mvhdV.setBigUint64(20, now, false); // modification_time
+  mvhdV.setUint32(28, timescale, false); // timescale
+  mvhdV.setBigUint64(32, 0xFFFFFFFFFFFFFFFFn, false); // DURATION = 0xFFFFFFFFFFFFFFFF (Infinite / Live stream bypass)
+
+  mvhdV.setUint32(40, 0x00010000, false); // rate 1.0
+  mvhdV.setUint16(44, 0x0100, false); // volume 1.0
+
+  // Unity matrix (36 bytes at offset 56)
+  mvhdV.setUint32(56, 0x00010000, false);
+  mvhdV.setUint32(72, 0x00010000, false);
+  mvhdV.setUint32(88, 0x40000000, false);
+
+  mvhdV.setUint32(116, nextTrackId || 3, false); // next_track_id
+
+  // 179-byte CompressBase / Zilem Method udta tag
+  const udtaHex = '000000b375647461000000ab6d657461000000000000002168646c7200000000000000006d6469726170706c0000000000000000000000007e696c737400000047a9746f6f0000003f6461746100000001000000005a696c656d204d6574686f642068747470733a2f2f7a696c656d6d6574686f642e636f6d206c6f63616c3a76352e300000002fa9636d74000000276461746100000001000000005061746368656420627920436f6d707265737362617365';
+  const udtaBytes = new Uint8Array(udtaHex.match(/../g)!.map(h => parseInt(h, 16)));
+
+  // Slice around original mvhd
+  const beforeMvhd = moovBytes.slice(8, mvhdBox.offset);
+  const afterMvhd = moovBytes.slice(mvhdBox.offset + mvhdBox.size);
+
+  const newMoovPayloadLength = beforeMvhd.byteLength + newMvhd.byteLength + afterMvhd.byteLength + udtaBytes.byteLength;
+  const newMoovSize = 8 + newMoovPayloadLength;
+
+  const patchedMoovBytes = new Uint8Array(newMoovSize);
+  const patchedMoovView = new DataView(patchedMoovBytes.buffer);
+  patchedMoovView.setUint32(0, newMoovSize, false);
+  writeFourCC(patchedMoovView, 4, 'moov');
+
+  let cur = 8;
+  patchedMoovBytes.set(newMvhd, cur);
+  cur += newMvhd.byteLength;
+  patchedMoovBytes.set(beforeMvhd, cur);
+  cur += beforeMvhd.byteLength;
+  patchedMoovBytes.set(afterMvhd, cur);
+  cur += afterMvhd.byteLength;
+  patchedMoovBytes.set(udtaBytes, cur);
+
+  const sizeDiff = newMoovSize - moovBytes.byteLength;
+  return { patchedMoovBytes, sizeDiff };
+}
+
+/**
  * Main patcher execution
  * Relocates moov to the front (Fast-Start) and updates chunk offsets.
  * Preserves 100% of video/audio streams using zero-memory streaming Blob slices.
@@ -244,7 +323,11 @@ export async function patchMp4Video(
   // Read only the moov atom (typically 1-5MB) into an ArrayBuffer for patching
   const moovSlice = file.slice(moovBox.offset, moovBox.offset + moovBox.size);
   const moovBuffer = await moovSlice.arrayBuffer();
-  const moovBytes = new Uint8Array(moovBuffer);
+  const rawMoovBytes = new Uint8Array(moovBuffer);
+
+  // Apply Zilem Method / CompressBase 64-bit infinite duration header & metadata
+  const { patchedMoovBytes, sizeDiff } = patchMoovWithZilemHeader(rawMoovBytes);
+  const moovBytes = patchedMoovBytes;
   const moovView = new DataView(moovBytes.buffer, moovBytes.byteOffset, moovBytes.byteLength);
 
   // Read and patch ftyp
@@ -263,15 +346,20 @@ export async function patchMp4Video(
     writeFourCC(v, 8, 'isom');
     writeUint32(v, 12, 0x00000200);
     writeFourCC(v, 16, 'isom');
-    writeFourCC(v, 20, 'mp42');
+    writeFourCC(v, 20, 'avc1');
     ftypBytes = new Uint8Array(b);
   }
 
   let finalBlob: Blob;
 
   if (isFastStart) {
-    onProgress?.(70, 'Patching fast-start brand markers...');
-    // moov is already before mdat. Preserve the exact layout!
+    onProgress?.(70, 'Patching fast-start brand markers & chunk offsets...');
+    // moov was already before mdat, but its size expanded by sizeDiff!
+    // Shift chunk offsets by exact size increase of moov
+    if (sizeDiff !== 0) {
+      updateChunkOffsets(moovView, sizeDiff);
+    }
+
     const chunks: any[] = [];
     chunks.push(ftypBytes);
 
@@ -292,14 +380,9 @@ export async function patchMp4Video(
     onProgress?.(95, 'Finalizing video stream...');
     finalBlob = new Blob(chunks, { type: 'video/mp4' });
   } else {
-    // moov is AFTER mdat! Relocate moov to the header (Fast-Start conversion)
-    onProgress?.(55, 'Relocating moov atom to header (Fast-Start conversion)...');
+    // moov was AFTER mdat! Relocate moov to the header (Fast-Start conversion)
+    onProgress?.(55, 'Relocating moov atom to header (Zilem Fast-Start bypass)...');
 
-    // Calculate exact byte shift:
-    // In new file:
-    // Chunk 0: ftypBytes (length = ftypBytes.byteLength)
-    // Chunk 1: moovBytes (length = moovBytes.byteLength)
-    // Chunk 2: file.slice(betweenStart, betweenEnd) -> containing mdat
     const betweenStart = ftypBox ? ftypBox.offset + ftypBox.size : 0;
     const betweenEnd = moovBox.offset;
 

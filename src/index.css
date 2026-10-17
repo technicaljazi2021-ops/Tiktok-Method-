@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --primary: #00f0ff;
+  --primary-hover: #38bdf8;
+  --blue-glow: rgba(0, 240, 255, 0.4);
+  --background: #030712;
+  --card-bg: rgba(255, 255, 255, 0.03);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #030712;
+  color: #ffffff;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Electric Blue Ambient & Grid Background */
+.upload-page {
+  background: radial-gradient(circle at 75% 15%, rgba(0, 240, 255, 0.08), transparent 30%),
+              radial-gradient(circle at 15% 75%, rgba(59, 130, 246, 0.07), transparent 35%),
+              #030712;
+  min-height: 100vh;
+  position: relative;
+}
+
+.upload-page::before {
+  content: "";
+  pointer-events: none;
+  opacity: 0.14;
+  background-image: linear-gradient(rgba(0, 240, 255, 0.15) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0, 240, 255, 0.15) 1px, transparent 1px);
+  background-size: 64px 64px;
+  position: absolute;
+  inset: 0;
+  -webkit-mask-image: linear-gradient(#000, transparent 95%);
+  mask-image: linear-gradient(#000, transparent 95%);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #030712;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}

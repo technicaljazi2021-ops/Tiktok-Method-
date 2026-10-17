@@ -131,6 +131,7 @@ export async function transcodeForTikTok(
     '-profile:v', 'high',
     '-level:v', '4.2',
     '-preset', 'veryfast',
+    '-x264-params', 'rc-lookahead=10:sync-lookahead=5',
     '-crf', '16',
     '-maxrate', '20M',
     '-bufsize', '40M',

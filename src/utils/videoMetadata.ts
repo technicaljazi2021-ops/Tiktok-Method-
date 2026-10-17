@@ -1,6 +1,7 @@
 /**
  * Video metadata inspection utility
  */
+import { scanTopLevelBoxes } from './mp4Patcher';
 
 export interface VideoMetadata {
   filename: string;
@@ -34,36 +35,11 @@ export function formatDuration(seconds: number): string {
 
 export async function checkFastStart(file: File): Promise<boolean> {
   try {
-    // Read the first 64KB
-    const slice = file.slice(0, 65536);
-    const buffer = await slice.arrayBuffer();
-    const view = new DataView(buffer);
-
-    let offset = 0;
-    let foundMoov = false;
-    let foundMdat = false;
-
-    while (offset < buffer.byteLength - 8) {
-      const size = view.getUint32(offset, false);
-      let type = '';
-      for (let i = 0; i < 4; i++) {
-        type += String.fromCharCode(view.getUint8(offset + 4 + i));
-      }
-
-      if (type === 'moov') {
-        foundMoov = true;
-        break; // If moov appears before mdat in the first 64KB, it's fast-start
-      }
-      if (type === 'mdat') {
-        foundMdat = true;
-        break; // mdat appeared first
-      }
-
-      if (size <= 0) break;
-      offset += size;
-    }
-
-    return foundMoov && !foundMdat;
+    const boxes = await scanTopLevelBoxes(file);
+    const moov = boxes.find(b => b.type === 'moov');
+    const mdat = boxes.find(b => b.type === 'mdat');
+    if (!moov || !mdat) return false;
+    return moov.offset < mdat.offset;
   } catch (e) {
     return false;
   }

@@ -60,20 +60,28 @@ function writeFourCC(view: DataView, offset: number, fourcc: string): void {
 }
 
 /**
- * Scan top-level boxes in an MP4 ArrayBuffer
+ * Scan top-level boxes using chunked header reads so huge files (e.g. 250MB - 2GB)
+ * do not allocate full ArrayBuffers or cause memory crashes.
  */
-export function scanTopLevelBoxes(view: DataView, totalLength: number): Box[] {
+export async function scanTopLevelBoxes(file: File): Promise<Box[]> {
   const boxes: Box[] = [];
+  const totalLength = file.size;
   let offset = 0;
 
   while (offset < totalLength - 8) {
-    let size = readUint32(view, offset);
-    const type = readFourCC(view, offset + 4);
+    // Read up to 16 bytes for box header
+    const headerSlice = file.slice(offset, Math.min(offset + 16, totalLength));
+    const headerBuffer = await headerSlice.arrayBuffer();
+    if (headerBuffer.byteLength < 8) break;
+
+    const view = new DataView(headerBuffer);
+    let size = readUint32(view, 0);
+    const type = readFourCC(view, 4);
     let headerSize = 8;
 
     if (size === 1) {
-      if (offset + 16 > totalLength) break;
-      const bigSize = readUint64(view, offset + 8);
+      if (headerBuffer.byteLength < 16) break;
+      const bigSize = readUint64(view, 8);
       size = Number(bigSize);
       headerSize = 16;
     } else if (size === 0) {
@@ -135,23 +143,13 @@ function findChildBoxes(view: DataView, start: number, end: number): Box[] {
 }
 
 /**
- * Detect track handler type (vide vs soun)
- */
-function getTrackHandlerType(moovView: DataView, trakOffset: number, trakSize: number): string {
-  const mdiaBox = findChildBoxes(moovView, trakOffset + 8, trakOffset + trakSize).find(b => b.type === 'mdia');
-  if (!mdiaBox) return '';
-
-  const hdlrBox = findChildBoxes(moovView, mdiaBox.dataOffset, mdiaBox.offset + mdiaBox.size).find(b => b.type === 'hdlr');
-  if (!hdlrBox) return '';
-
-  // hdlr structure: [size:4][type:4][version:1][flags:3][pre_defined:4][handler_type:4]
-  return readFourCC(moovView, hdlrBox.dataOffset + 8);
-}
-
-/**
  * Update all chunk offsets (stco / co64) within moov box buffer
+ * Note: Must traverse 'moov' and all intermediate container boxes
  */
-function updateChunkOffsets(moovView: DataView, shiftAmount: number): void {
+function updateChunkOffsets(moovView: DataView, shiftAmount: number): { stcoCount: number; co64Count: number } {
+  let stcoCount = 0;
+  let co64Count = 0;
+
   function traverse(offset: number, length: number) {
     const children = findChildBoxes(moovView, offset, offset + length);
     for (const box of children) {
@@ -164,6 +162,7 @@ function updateChunkOffsets(moovView: DataView, shiftAmount: number): void {
           const oldOffset = readUint32(moovView, currentPos);
           writeUint32(moovView, currentPos, oldOffset + shiftAmount);
           currentPos += 4;
+          stcoCount++;
         }
       } else if (box.type === 'co64') {
         // co64: [version:1][flags:3][entry_count:4][offset_1:8]...
@@ -174,14 +173,16 @@ function updateChunkOffsets(moovView: DataView, shiftAmount: number): void {
           const oldOffset = readUint64(moovView, currentPos);
           writeUint64(moovView, currentPos, oldOffset + BigInt(shiftAmount));
           currentPos += 8;
+          co64Count++;
         }
-      } else if (['trak', 'mdia', 'minf', 'stbl', 'edts', 'mvex'].includes(box.type)) {
+      } else if (['moov', 'trak', 'mdia', 'minf', 'stbl', 'edts', 'mvex'].includes(box.type)) {
         traverse(box.dataOffset, box.size - box.headerSize);
       }
     }
   }
 
   traverse(0, moovView.byteLength);
+  return { stcoCount, co64Count };
 }
 
 /**
@@ -199,7 +200,7 @@ function patchFtypInPlace(ftypBytes: Uint8Array, variant: PatchVariant): void {
     writeFourCC(view, 8, 'isom');
   }
 
-  // If there is room for compatible brands, ensure mp42 / isom / avc1
+  // Compatible brands: isom, mp42, iso2, avc1
   let offset = 16;
   const targetBrands = variant === 'variant-3'
     ? ['qt  ', 'mp42', 'isom']
@@ -215,20 +216,18 @@ function patchFtypInPlace(ftypBytes: Uint8Array, variant: PatchVariant): void {
 
 /**
  * Main patcher execution
+ * Relocates moov to the front (Fast-Start) and updates chunk offsets.
+ * Preserves 100% of video/audio streams using zero-memory streaming Blob slices.
  */
 export async function patchMp4Video(
   file: File,
   options: PatchOptions
 ): Promise<PatchResult> {
-  const { variant, targetFps, onProgress } = options;
+  const { variant, onProgress } = options;
+  const totalLength = file.size;
 
-  onProgress?.(10, 'Reading MP4 container header...');
-  const arrayBuffer = await file.arrayBuffer();
-  const totalLength = arrayBuffer.byteLength;
-  const view = new DataView(arrayBuffer);
-
-  onProgress?.(25, 'Analyzing MP4 box structure...');
-  const boxes = scanTopLevelBoxes(view, totalLength);
+  onProgress?.(15, 'Scanning MP4 box structure...');
+  const boxes = await scanTopLevelBoxes(file);
   const boxTypes = boxes.map(b => b.type);
 
   const ftypBox = boxes.find(b => b.type === 'ftyp');
@@ -241,17 +240,22 @@ export async function patchMp4Video(
 
   const isFastStart = moovBox.offset < mdatBox.offset;
 
-  onProgress?.(45, 'Cloning container metadata...');
-  const moovBytes = new Uint8Array(arrayBuffer.slice(moovBox.offset, moovBox.offset + moovBox.size));
+  onProgress?.(35, 'Extracting container metadata...');
+  // Read only the moov atom (typically 1-5MB) into an ArrayBuffer for patching
+  const moovSlice = file.slice(moovBox.offset, moovBox.offset + moovBox.size);
+  const moovBuffer = await moovSlice.arrayBuffer();
+  const moovBytes = new Uint8Array(moovBuffer);
   const moovView = new DataView(moovBytes.buffer, moovBytes.byteOffset, moovBytes.byteLength);
 
-  // Clone ftyp bytes
+  // Read and patch ftyp
   let ftypBytes: Uint8Array;
   if (ftypBox) {
-    ftypBytes = new Uint8Array(arrayBuffer.slice(ftypBox.offset, ftypBox.offset + ftypBox.size));
+    const ftypSlice = file.slice(ftypBox.offset, ftypBox.offset + ftypBox.size);
+    const ftypBuffer = await ftypSlice.arrayBuffer();
+    ftypBytes = new Uint8Array(ftypBuffer);
     patchFtypInPlace(ftypBytes, variant);
   } else {
-    // Generate minimal standard 24-byte ftyp
+    // Generate minimal standard 24-byte ftyp if none existed
     const b = new ArrayBuffer(24);
     const v = new DataView(b);
     writeUint32(v, 0, 24);
@@ -274,43 +278,51 @@ export async function patchMp4Video(
     // If there was space between ftyp and moov (e.g. a free box), preserve it
     const afterFtyp = ftypBox ? ftypBox.offset + ftypBox.size : 0;
     if (moovBox.offset > afterFtyp) {
-      chunks.push(arrayBuffer.slice(afterFtyp, moovBox.offset));
+      chunks.push(file.slice(afterFtyp, moovBox.offset));
     }
 
     chunks.push(moovBytes);
 
-    // Append everything after moov (including mdat)
+    // Append everything after moov (including mdat) as a native Blob slice
     const remainderOffset = moovBox.offset + moovBox.size;
     if (remainderOffset < totalLength) {
-      chunks.push(arrayBuffer.slice(remainderOffset));
+      chunks.push(file.slice(remainderOffset));
     }
 
     onProgress?.(95, 'Finalizing video stream...');
     finalBlob = new Blob(chunks, { type: 'video/mp4' });
   } else {
-    // moov is AFTER mdat!
-    // Shift chunk offsets by exact size of moov
-    onProgress?.(60, 'Relocating moov atom to header (Fast-Start conversion)...');
-    const shift = moovBox.size;
+    // moov is AFTER mdat! Relocate moov to the header (Fast-Start conversion)
+    onProgress?.(55, 'Relocating moov atom to header (Fast-Start conversion)...');
+
+    // Calculate exact byte shift:
+    // In new file:
+    // Chunk 0: ftypBytes (length = ftypBytes.byteLength)
+    // Chunk 1: moovBytes (length = moovBytes.byteLength)
+    // Chunk 2: file.slice(betweenStart, betweenEnd) -> containing mdat
+    const betweenStart = ftypBox ? ftypBox.offset + ftypBox.size : 0;
+    const betweenEnd = moovBox.offset;
+
+    // In original file, mdat was at mdatBox.offset
+    // In new file, mdat is at: ftypBytes.byteLength + moovBytes.byteLength + (mdatBox.offset - betweenStart)
+    const newMdatOffset = ftypBytes.byteLength + moovBytes.byteLength + (mdatBox.offset - betweenStart);
+    const shift = newMdatOffset - mdatBox.offset;
 
     onProgress?.(75, 'Updating chunk offsets (stco/co64)...');
-    updateChunkOffsets(moovView, shift);
+    const { stcoCount, co64Count } = updateChunkOffsets(moovView, shift);
+    console.log(`[MP4 Patcher] Updated ${stcoCount} stco entries and ${co64Count} co64 entries with shift = ${shift} bytes.`);
 
-    // Construct new MP4 stream:
+    // Construct new MP4 stream using zero-copy Blob slices:
     // [ftyp] [moov] [everything between ftyp and moov (including mdat)] [any trailing boxes]
     const chunks: any[] = [];
     chunks.push(ftypBytes);
     chunks.push(moovBytes);
-
-    // Append everything that was between ftyp and moov
-    const betweenStart = ftypBox ? ftypBox.offset + ftypBox.size : 0;
-    const betweenEnd = moovBox.offset;
-    chunks.push(arrayBuffer.slice(betweenStart, betweenEnd));
+    chunks.push(file.slice(betweenStart, betweenEnd));
 
     // Append any trailing boxes that were after moov
     const trailingStart = moovBox.offset + moovBox.size;
     if (trailingStart < totalLength) {
-      chunks.push(arrayBuffer.slice(trailingStart));
+      chunks.push(file.slice(trailingStart));
     }
 
     onProgress?.(95, 'Assembling patched MP4 stream...');

@@ -18,8 +18,11 @@
     <meta property="og:title" content="CompressBase - TikTok Quality Patcher (1080p 60/90 FPS)" />
     <meta property="og:description" content="Client-side lossless video container patcher & WebAssembly 60/90 FPS resampler for TikTok." />
     <meta property="og:type" content="website" />
+
+    <!-- Preload FFmpeg WASM Core -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
   </head>
-  <body class="bg-[#050506] text-white antialiased selection:bg-[#f6c945]/30 selection:text-[#f6c945]">
+  <body class="bg-[#030712] text-white antialiased selection:bg-cyan-500/30 selection:text-cyan-400">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

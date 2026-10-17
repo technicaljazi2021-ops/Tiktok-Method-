@@ -108,16 +108,29 @@ export const App: React.FC = () => {
         finalBlob = res.blob;
       } else {
         // Full WebAssembly FFmpeg transcode (true 60fps/90fps Lanczos scale)
-        finalBlob = await transcodeForTikTok(videoFile, {
+        const transcodedBlob = await transcodeForTikTok(videoFile, {
           targetResolution,
           targetFps,
           crf: 18,
           audioBitrate: '192k',
           onProgress: (p, stage) => {
-            setProgress(p);
+            setProgress(Math.round(p * 0.9));
             setStageMessage(stage);
           }
         });
+
+        // Apply TikTok container headers & FastStart onto the encoded video
+        setStageMessage('Injecting TikTok FastStart & container brands...');
+        const transcodedFile = new File([transcodedBlob], videoFile.name, { type: 'video/mp4' });
+        const patchRes = await patchMp4Video(transcodedFile, {
+          variant: selectedVariant,
+          targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
+          onProgress: (p, stage) => {
+            setProgress(90 + Math.round(p * 0.1));
+            setStageMessage('Finalizing container: ' + stage);
+          }
+        });
+        finalBlob = patchRes.blob;
       }
 
       const outUrl = URL.createObjectURL(finalBlob);

@@ -1,24 +1,23 @@
 /**
- * Client-Side Video Transcoding & FPS Interpolation Engine
+ * Client-Side Video Transcoding & FPS Resampling Engine
  * Uses WebAssembly FFmpeg for real 1080p 60 FPS / 90 FPS resampling,
  * Lanczos downscaling, CFR normalization, and TikTok High Profile encoding.
  */
 
 export interface TranscodeOptions {
   targetResolution: '1080x1920' | '1080x1350' | '1080x1080' | 'source';
-  targetFps: 30 | 60 | 90 | 120 | 'source';
-  crf: number; // 18 is visually lossless master
-  audioBitrate: string; // '192k'
+  targetFps: 60 | 90 | 120 | 'source';
+  crf?: number; // 18 is visually lossless master
+  audioBitrate?: string; // '192k'
   videoBitrate?: string; // '16M'
   onProgress?: (progress: number, stage: string) => void;
   onLog?: (message: string) => void;
 }
 
-// We dynamically load FFmpeg from reliable CDN to keep the initial Vercel bundle light and fast
 let ffmpegInstance: any = null;
 
-async function loadFFmpeg(onLog?: (message: string) => void): Promise<any> {
-  if (ffmpegInstance) return ffmpegInstance;
+export async function loadFFmpeg(onLog?: (message: string) => void): Promise<any> {
+  if (ffmpegInstance && ffmpegInstance.isLoaded()) return ffmpegInstance;
 
   onLog?.('Initializing WebAssembly video processing core...');
 
@@ -36,6 +35,11 @@ async function loadFFmpeg(onLog?: (message: string) => void): Promise<any> {
 
   // Inject FFmpeg script dynamically
   await new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector('script[src*="ffmpeg.min.js"]');
+    if (existing) {
+      resolve();
+      return;
+    }
     const script = document.createElement('script');
     script.src = 'https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js';
     script.async = true;
@@ -62,7 +66,7 @@ export async function transcodeForTikTok(
   const {
     targetResolution,
     targetFps,
-    crf = 19,
+    crf = 18,
     audioBitrate = '192k',
     videoBitrate = '16M',
     onProgress,
@@ -72,9 +76,10 @@ export async function transcodeForTikTok(
   onProgress?.(5, 'Loading WebAssembly engine...');
   const ffmpeg = await loadFFmpeg(onLog);
 
-  onProgress?.(15, 'Buffering video to memory...');
-  const inputName = 'input_' + Date.now() + '.' + (file.name.split('.').pop() || 'mp4');
-  const outputName = 'tiktok_master_' + Date.now() + '.mp4';
+  onProgress?.(15, 'Buffering video into WebAssembly virtual memory...');
+  const inputExt = (file.name.split('.').pop() || 'mp4').toLowerCase();
+  const inputName = `input_${Date.now()}.${inputExt}`;
+  const outputName = `tiktok_out_${Date.now()}.mp4`;
 
   const fileData = new Uint8Array(await file.arrayBuffer());
   ffmpeg.FS('writeFile', inputName, fileData);
@@ -82,25 +87,26 @@ export async function transcodeForTikTok(
   // Set up progress tracking
   ffmpeg.setProgress(({ ratio }: { ratio: number }) => {
     const percent = Math.min(95, Math.max(15, Math.round(15 + ratio * 80)));
-    onProgress?.(percent, `Transcoding for TikTok: ${percent}%`);
+    onProgress?.(percent, `Transcoding for TikTok (${targetFps !== 'source' ? targetFps + ' FPS' : 'HD'}): ${percent}%`);
   });
 
-  onLog?.(`Building TikTok encoding pipeline: Res=${targetResolution}, FPS=${targetFps}, CRF=${crf}...`);
+  onLog?.(`Configuring TikTok encoding pipeline: Res=${targetResolution}, FPS=${targetFps}, CRF=${crf}, Bitrate=${videoBitrate}...`);
 
-  // Construct ffmpeg arguments
-  const args = ['-i', inputName];
+  const args: string[] = ['-i', inputName];
 
   // Video filter construction
   const vfFilters: string[] = [];
 
-  // Resolution scaling
+  // Resolution scaling with aspect-ratio preservation and black padding
   if (targetResolution === '1080x1920') {
-    // High quality Lanczos scale to 1080x1920 with aspect ratio preservation
-    vfFilters.push('scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
+    vfFilters.push('scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1920:(1080-iw)/2:(1920-ih)/2:color=black,setsar=1');
   } else if (targetResolution === '1080x1350') {
-    vfFilters.push('scale=1080:1350:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1350:(ow-iw)/2:(oh-ih)/2');
+    vfFilters.push('scale=1080:1350:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1350:(1080-iw)/2:(1350-ih)/2:color=black,setsar=1');
   } else if (targetResolution === '1080x1080') {
-    vfFilters.push('scale=1080:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1080:(ow-iw)/2:(oh-ih)/2');
+    vfFilters.push('scale=1080:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1080:(1080-iw)/2:(1080-ih)/2:color=black,setsar=1');
+  } else {
+    // Ensure dimensions are divisible by 2 for yuv420p
+    vfFilters.push('scale=trunc(iw/2)*2:trunc(ih/2)*2');
   }
 
   // Framerate normalization (Strict Constant Frame Rate)
@@ -113,7 +119,7 @@ export async function transcodeForTikTok(
     args.push('-vf', vfFilters.join(','));
   }
 
-  // Codec, profile and quality settings
+  // Codec, profile and quality settings matching TikTok Studio requirements
   args.push(
     '-c:v', 'libx264',
     '-profile:v', 'high',
@@ -123,7 +129,7 @@ export async function transcodeForTikTok(
     '-maxrate', videoBitrate,
     '-bufsize', '32M',
     '-pix_fmt', 'yuv420p',
-    '-g', targetFps !== 'source' ? String(Number(targetFps) * 2) : '60', // 2 second GOP size
+    '-g', targetFps !== 'source' ? String(Number(targetFps) * 2) : '60', // 2-second GOP size
     '-keyint_min', targetFps !== 'source' ? String(Number(targetFps)) : '30',
     '-c:a', 'aac',
     '-b:a', audioBitrate,
@@ -133,10 +139,10 @@ export async function transcodeForTikTok(
     outputName
   );
 
-  onProgress?.(20, 'Executing high-fidelity encode pass...');
+  onProgress?.(25, 'Executing high-fidelity encode pass...');
   await ffmpeg.run(...args);
 
-  onProgress?.(95, 'Exporting optimized video stream...');
+  onProgress?.(95, 'Reading optimized video from virtual memory...');
   const outputData = ffmpeg.FS('readFile', outputName);
 
   // Clean up memory in virtual FS
@@ -147,6 +153,6 @@ export async function transcodeForTikTok(
     // ignore
   }
 
-  onProgress?.(100, 'Processing complete!');
+  onProgress?.(100, 'Encoding complete!');
   return new Blob([outputData.buffer], { type: 'video/mp4' });
 }

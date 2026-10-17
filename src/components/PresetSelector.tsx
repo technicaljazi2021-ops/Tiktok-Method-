@@ -24,8 +24,8 @@ export const UNIFIED_PRESETS: UnifiedPreset[] = [
     resolution: '1080x1920',
     fps: 60,
     defaultVariant: 'variant-2',
-    defaultEngine: 'patch',
-    description: 'Crisp 1080x1920 vertical canvas with 60 FPS constant frame rate. Injects TikTok Studio PC bypass headers.',
+    defaultEngine: 'transcode',
+    description: 'Crisp 1080x1920 vertical canvas with true 60 FPS constant frame rate, Lanczos scaling, and H.264 High Profile.',
     recommendedFor: 'Gaming clips, velocity edits, dance, anime montages'
   },
   {
@@ -36,8 +36,8 @@ export const UNIFIED_PRESETS: UnifiedPreset[] = [
     resolution: '1080x1920',
     fps: 90,
     defaultVariant: 'variant-4',
-    defaultEngine: 'patch',
-    description: 'Special 90 FPS timescale injection. Delivers liquid-smooth playback on 90Hz & 120Hz mobile screens.',
+    defaultEngine: 'transcode',
+    description: 'True 90 FPS constant frame rate resampling. Delivers liquid-smooth playback on 90Hz & 120Hz mobile screens.',
     recommendedFor: 'High refresh rate viewers, AMVs, smooth motion graphics'
   },
   {
@@ -47,8 +47,8 @@ export const UNIFIED_PRESETS: UnifiedPreset[] = [
     resolution: '1080x1920',
     fps: 120,
     defaultVariant: 'variant-4',
-    defaultEngine: 'patch',
-    description: 'Extreme 120 FPS timescale multiplier. Bypasses TikTok frame-rate ingestion downclocking.',
+    defaultEngine: 'transcode',
+    description: 'Extreme 120 FPS frame rate resampling. Bypasses TikTok frame-rate ingestion downclocking.',
     recommendedFor: 'Twixtor slow-motion, speed ramps, extreme motion clips'
   },
   {
@@ -58,7 +58,7 @@ export const UNIFIED_PRESETS: UnifiedPreset[] = [
     resolution: '1080x1920',
     fps: 60,
     defaultVariant: 'variant-3',
-    defaultEngine: 'patch',
+    defaultEngine: 'transcode',
     description: 'Injects Apple QuickTime metadata (qt brand) so TikTok treats footage as native iPhone camera recording.',
     recommendedFor: 'Posting directly from iPhone or iPad TikTok app'
   },
@@ -72,7 +72,7 @@ export const UNIFIED_PRESETS: UnifiedPreset[] = [
     defaultVariant: 'variant-1',
     defaultEngine: 'patch',
     description: 'Pure binary container rewrite: relocates moov before mdat, updates chunk offsets, ready in 0.1s.',
-    recommendedFor: 'Videos already rendered in Premiere/CapCut'
+    recommendedFor: 'Videos already rendered in 1080x1920 in Premiere/CapCut'
   }
 ];
 

@@ -112,8 +112,8 @@ export const App: React.FC = () => {
           const transcodedBlob = await transcodeForTikTok(videoFile, {
             targetResolution,
             targetFps,
-            crf: 19,
-            videoBitrate: '12M',
+            crf: 20,
+            videoBitrate: '8M',
             audioBitrate: '192k',
             onProgress: (p, stage) => {
               setProgress(Math.round(p * 0.9));

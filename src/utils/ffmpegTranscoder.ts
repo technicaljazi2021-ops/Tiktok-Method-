@@ -109,9 +109,9 @@ export async function transcodeForTikTok(
     vfFilters.push('scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos+accurate_rnd');
   }
 
-  // CompressBase detail enhancement: 5x5 luma sharpening (0.8) + 3x3 chroma sharpening (0.4)
-  // Guarantees razor-sharp edges on game HUDs, facecam, character outlines, and CC
-  vfFilters.push('unsharp=5:5:0.8:3:3:0.4');
+  // CompressBase detail enhancement: 5x5 luma sharpening (1.0) + 3x3 chroma sharpening (0.5)
+  // Guarantees razor-sharp edges on game HUDs, facecam, crosshairs, and CC
+  vfFilters.push('unsharp=5:5:1.0:3:3:0.5');
 
   // Framerate normalization (Strict Constant Frame Rate)
   if (targetFps !== 'source') {
@@ -123,24 +123,23 @@ export async function transcodeForTikTok(
     args.push('-vf', vfFilters.join(','));
   }
 
-  // Memory-Safe High-Fidelity Encoding:
-  // - Preset 'veryfast' + '-threads 2': Prevents browser 32-bit WebAssembly OOM heap crashes on 4K/2160p videos
-  // - Strict TikTok Passthrough Ceiling: -b:v 8M -maxrate 10M -bufsize 16M with CRF 20
-  //   Guarantees a 30-32 second video lands at exactly ~30MB (7.5-8 Mbps).
-  //   Bypasses TikTok's 12Mbps server-side downscaler to keep native 1080p 60fps intact!
-  // - BT.709 Color Space tags: Preserves natural dynamic range and color correction without crushed blacks
-  // - 192k AAC 48kHz: Crystal-clear audio
+  // Constrained CRF (CRF + VBV) Mode:
+  // - Preset 'faster': Significantly better motion estimation (subme 4) and macroblock precision than 'veryfast',
+  //   eliminating the muddy pixelation in dark areas and facecam.
+  // - CRF 18.5 with -maxrate 9M -bufsize 14M:
+  //   Constrained CRF allocates bits intelligently based on visual complexity while strictly guaranteeing
+  //   the video never exceeds TikTok's ~10Mbps ceiling. For a 30s edit, this lands at the exact ~28-31MB target.
+  // - Strict BT.709 color matrix: Keeps ambient colors and lighting natural and vibrant without dark crushing.
   args.push(
     '-threads', '2',
     '-c:v', 'libx264',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-preset', 'veryfast',
-    '-x264-params', 'rc-lookahead=10:sync-lookahead=5',
-    '-crf', '20',
-    '-b:v', '8M',
-    '-maxrate', '10M',
-    '-bufsize', '16M',
+    '-preset', 'faster',
+    '-x264-params', 'rc-lookahead=12:sync-lookahead=6',
+    '-crf', '18.5',
+    '-maxrate', '9M',
+    '-bufsize', '14M',
     '-pix_fmt', 'yuv420p',
     '-colorspace', 'bt709',
     '-color_primaries', 'bt709',

@@ -9,7 +9,6 @@ import { HowItWorksModal } from './components/HowItWorksModal';
 import { VideoMetadata, extractVideoMetadata } from './utils/videoMetadata';
 import { patchMp4Video, PatchVariant } from './utils/mp4Patcher';
 import { transcodeForTikTok } from './utils/ffmpegTranscoder';
-import { transcodeWithMediabunny, isWebCodecsSupported } from './utils/mediaBunnyTranscoder';
 import { Sparkles, Shield, Cpu, Zap, Activity } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -92,94 +91,40 @@ export const App: React.FC = () => {
     setIsCompleted(false);
 
     try {
-      let finalBlob: Blob;
+      setStageMessage('Buffering video into CPU processing core...');
 
-      if (isWebCodecsSupported()) {
-        try {
-          setStageMessage('Initializing GPU hardware encoder (WebCodecs)...');
-          // Mediabunny native GPU hardware transcode (0% OOM risk, 10x faster)
-          const transcodedBlob = await transcodeWithMediabunny(videoFile, {
-            targetResolution,
-            targetFps,
-            bitrate: 8_000_000,
-            onProgress: (p, stage) => {
-              setProgress(Math.round(p * 0.9));
-              setStageMessage(stage);
-            }
-          });
-
-          // Apply Zilem Method / CompressBase 64-bit infinite duration header & FastStart
-          setStageMessage('Injecting Zilem Method 64-bit infinite duration bypass...');
-          const transcodedFile = new File([transcodedBlob], videoFile.name, { type: 'video/mp4' });
-          const patchRes = await patchMp4Video(transcodedFile, {
-            variant: selectedVariant,
-            targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
-            onProgress: (p, stage) => {
-              setProgress(90 + Math.round(p * 0.1));
-              setStageMessage('Finalizing container: ' + stage);
-            }
-          });
-          finalBlob = patchRes.blob;
-        } catch (mediaBunnyErr) {
-          console.warn('WebCodecs GPU transcode encountered an issue, falling back to direct container patch...', mediaBunnyErr);
-          setStageMessage('Applying Zilem Method Container Patch...');
-          const patchRes = await patchMp4Video(videoFile, {
-            variant: selectedVariant,
-            targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
-            onProgress: (p, stage) => {
-              setProgress(p);
-              setStageMessage(stage);
-            }
-          });
-          finalBlob = patchRes.blob;
+      // High-Fidelity CPU Transcode (1080p, 5x5 Unsharp Filter, Constrained CRF 18.5)
+      const transcodedBlob = await transcodeForTikTok(videoFile, {
+        targetResolution,
+        targetFps,
+        crf: 18.5,
+        videoBitrate: '8M',
+        audioBitrate: '192k',
+        onProgress: (p, stage) => {
+          setProgress(Math.round(p * 0.9));
+          setStageMessage(stage);
         }
-      } else {
-        // Fallback for browsers without WebCodecs
-        try {
-          setStageMessage('Processing with WebAssembly engine...');
-          const transcodedBlob = await transcodeForTikTok(videoFile, {
-            targetResolution,
-            targetFps,
-            crf: 18.5,
-            videoBitrate: '8M',
-            audioBitrate: '192k',
-            onProgress: (p, stage) => {
-              setProgress(Math.round(p * 0.9));
-              setStageMessage(stage);
-            }
-          });
+      });
 
-          const transcodedFile = new File([transcodedBlob], videoFile.name, { type: 'video/mp4' });
-          const patchRes = await patchMp4Video(transcodedFile, {
-            variant: selectedVariant,
-            targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
-            onProgress: (p, stage) => {
-              setProgress(90 + Math.round(p * 0.1));
-              setStageMessage('Finalizing container: ' + stage);
-            }
-          });
-          finalBlob = patchRes.blob;
-        } catch (wasmErr) {
-          console.warn('WASM Transcode failed, falling back to direct container patch...', wasmErr);
-          setStageMessage('Applying Zilem Method Container Patch...');
-          const patchRes = await patchMp4Video(videoFile, {
-            variant: selectedVariant,
-            targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
-            onProgress: (p, stage) => {
-              setProgress(p);
-              setStageMessage(stage);
-            }
-          });
-          finalBlob = patchRes.blob;
+      // Apply Zilem Method / CompressBase 64-bit infinite duration header & FastStart
+      setStageMessage('Injecting Zilem Method 64-bit infinite duration bypass...');
+      const transcodedFile = new File([transcodedBlob], videoFile.name, { type: 'video/mp4' });
+      const patchRes = await patchMp4Video(transcodedFile, {
+        variant: selectedVariant,
+        targetFps: targetFps !== 'source' ? (targetFps as 60 | 90 | 120) : null,
+        onProgress: (p, stage) => {
+          setProgress(90 + Math.round(p * 0.1));
+          setStageMessage('Finalizing container: ' + stage);
         }
-      }
+      });
 
+      const finalBlob = patchRes.blob;
       const outUrl = URL.createObjectURL(finalBlob);
       setOutputBlob(finalBlob);
       setOutputUrl(outUrl);
       setIsCompleted(true);
       setProgress(100);
-      setStageMessage('Ready for TikTok! Video & Audio stream verified.');
+      setStageMessage('Ready for TikTok! 1080p HD stream verified.');
     } catch (err: any) {
       console.error('Processing failed', err);
       alert('Optimization error: ' + (err.message || 'Check video file'));

@@ -131,12 +131,12 @@ export async function transcodeForTikTok(
   //   the video never exceeds TikTok's ~10Mbps ceiling. For a 30s edit, this lands at the exact ~28-31MB target.
   // - Strict BT.709 color matrix: Keeps ambient colors and lighting natural and vibrant without dark crushing.
   args.push(
-    '-threads', '2',
+    '-threads', '1',
     '-c:v', 'libx264',
     '-profile:v', 'high',
     '-level:v', '4.2',
-    '-preset', 'faster',
-    '-x264-params', 'rc-lookahead=12:sync-lookahead=6',
+    '-preset', 'veryfast',
+    '-x264-params', 'rc-lookahead=5:sync-lookahead=0',
     '-crf', '18.5',
     '-maxrate', '9M',
     '-bufsize', '14M',

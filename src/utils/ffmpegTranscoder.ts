@@ -26,7 +26,7 @@ export async function loadFFmpeg(onLog?: (message: string) => void): Promise<any
     const { createFFmpeg } = (window as any).FFmpeg;
     const ffmpeg = createFFmpeg({
       log: true,
-      corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+      corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
     });
     await ffmpeg.load();
     ffmpegInstance = ffmpeg;
@@ -51,7 +51,7 @@ export async function loadFFmpeg(onLog?: (message: string) => void): Promise<any
   const { createFFmpeg } = (window as any).FFmpeg;
   const ffmpeg = createFFmpeg({
     log: true,
-    corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
   });
 
   await ffmpeg.load();
@@ -136,7 +136,7 @@ export async function transcodeForTikTok(
     '-profile:v', 'high',
     '-level:v', '4.2',
     '-preset', 'faster',
-    '-x264-params', 'rc-lookahead=10:sync-lookahead=0',
+    '-x264-params', 'rc-lookahead=6:sync-lookahead=0',
     '-crf', '18.5',
     '-maxrate', '9M',
     '-bufsize', '14M',

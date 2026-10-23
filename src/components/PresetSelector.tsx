@@ -192,7 +192,7 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
                   { id: '1080x1920', label: '9:16 (1080p)' },
                   { id: '1080x1350', label: '4:5 Portrait' },
                   { id: '1080x1080', label: '1:1 Square' },
-                  { id: 'source', label: 'Source Res' }
+                  { id: 'source', label: 'Source (1080p)' }
                 ] as const).map((r) => (
                   <button
                     key={r.id}
